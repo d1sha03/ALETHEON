@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scroll-Driven Image Sequence</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      background: black;
+      overflow-x: hidden;
+      touch-action: none;
+      margin: 0;
+      padding: 0;
+    }
+    ::-webkit-scrollbar { display: none; }
+    html { -ms-overflow-style: none; scrollbar-width: none; }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="viewport" id="viewport"><canvas id="canvas"></canvas></div>
+
+  <script>
+    // Valid frame numbers: 0-254 and 318-425 (363 total frames)
+    // Missing: 255-317 (63 frames)
+    const VALID_FRAMES = (() => {
+      const frames = [];
+      for (let i = 0; i <= 254; i++) frames.push(i);
+      for (let i = 318; i <= 425; i++) frames.push(i);
+      return frames;
+    })();
+
+    const TOTAL_VALID_FRAMES = VALID_FRAMES.length;
+    const FRAME_DIR = '/frames/';
+    let sectionHeight = window.innerHeight;
+    let frameWidth = 1920;
+    let frameHeight = 1080;
+
+    function pad6(num) { return String(num).padStart(6, '0'); }
+    function getFrameUrl(index) {
+      const n = VALID_FRAMES[index];
+      if (n === undefined) return '';
+      return `${FRAME_DIR}frame_${pad6(n)}.jpg`;
+    }
+
+    // Image preload cache: stores Image objects by URL
+    const imageCache = {};
+
+    // Preload and cache an image
+    function preloadImage(url) {
+      if (imageCache[url] && imageCache[url].loaded) return;
+      const img = new Image();
+      img.onload = () => {
+        imageCache[url] = { img, loaded: true };
+      };
+      img.onerror = () => {
+        imageCache[url] = { loaded: false };
+      };
+      img.src = url;
+    }
+
+    // Preload a batch of frames
+    function preloadFrames(startIdx, count) {
+      for (let i = startIdx; i < startIdx + count && i < TOTAL_VALID_FRAMES; i++) {
+        const url = getFrameUrl(i);
+        if (url) {
+          preloadImage(url);
+        }
+      }
+    }
+
+    // Setup the page
+    function setupPage() {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // Set canvas size to fill viewport
+      function resizeCanvas() {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        canvas.width = vw;
+        canvas.height = vh;
+        
+        // Calculate scaled dimensions maintaining aspect ratio
+          // Frame is 1920x1080 (16:9), viewport is vw x vh
+        const frameAspect = frameWidth / frameHeight; // 16/9
+        const viewportAspect = vw / vh;
+        
+        let drawWidth, drawHeight, drawX, drawY;
+        if (viewportAspect > frameAspect) {
+          // Viewport is wider than frame - letterbox vertically
+          drawWidth = vh * frameAspect;
+          drawHeight = vh;
+          drawX = (vw - drawWidth) / 2;
+          drawY = 0;
+        } else {
+          // Viewport is taller than frame - letterbox horizontally
+          drawWidth = vw;
+          drawHeight = vw / frameAspect;
+          drawX = 0;
+          drawY = (vh - drawHeight) / 2;
+        }
+        
+        // Store for updateFrame
+        canvas.drawWidth = drawWidth;
+        canvas.drawHeight = drawHeight;
+        canvas.drawX = drawX;
+        canvas.drawY = drawY;
+      }
+
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      // Set total scroll height - enough for all frames
+      // Each frame gets sectionHeight pixels of scroll
+      document.body.style.height = `${TOTAL_VALID_FRAMES * sectionHeight}px`;
+      document.body.style.overflow = 'scroll';
+
+      // Preload first batch of frames
+      preloadFrames(0, 10);
+
+      // Scroll event for frame interpolation
+      let ticking = false;
+
+      function onScroll() {
+        if (ticking) return;
+        window.requestAnimationFrame(updateFrame);
+        ticking = true;
+      }
+
+      function updateFrame() {
+        const scrollY = window.scrollY;
+        // Map scroll position to frame index
+        // Each frame gets sectionHeight pixels of scroll
+        const rawProgress = scrollY / sectionHeight;
+        const maxIndex = TOTAL_VALID_FRAMES - 1;
+        const clampedProgress = Math.max(0, Math.min(maxIndex, rawProgress));
+        const frameIdx = Math.floor(clampedProgress);
+        const decimalProgress = clampedProgress - frameIdx;
+
+        const lowerUrl = getFrameUrl(frameIdx);
+        const upperIdx = Math.min(frameIdx + 1, TOTAL_VALID_FRAMES - 1);
+        const upperUrl = getFrameUrl(upperIdx);
+
+        if (!lowerUrl) { ticking = false; return; }
+
+        // Ensure both images are loaded
+        if (!imageCache[lowerUrl] || !imageCache[upperUrl]) {
+          // Wait for images to load - just use what we have
+          ticking = false;
+          return;
+        }
+
+        const lowerImg = imageCache[lowerUrl].img;
+        const upperImg = imageCache[upperUrl].img;
+
+        // Preload next frame
+        const nextIdx = Math.min(frameIdx + 2, TOTAL_VALID_FRAMES - 1);
+        const nextUrl = getFrameUrl(nextIdx);
+        if (nextUrl && !imageCache[nextUrl]) {
+          preloadImage(nextUrl);
+        }
+
+        // Clear canvas
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Calculate draw dimensions (same as resize)
+        const vw = canvas.width;
+        const vh = canvas.height;
+        const frameAspect = frameWidth / frameHeight;
+        const viewportAspect = vw / vh;
+        let drawWidth, drawHeight, drawX, drawY;
+        if (viewportAspect > frameAspect) {
+          drawWidth = vh * frameAspect;
+          drawHeight = vh;
+          drawX = (vw - drawWidth) / 2;
+          drawY = 0;
+        } else {
+          drawWidth = vw;
+          drawHeight = vw / frameAspect;
+          drawX = 0;
+          drawY = (vh - drawHeight) / 2;
+        }
+
+        // Cross-fade between lower and upper frames
+        // decimalProgress is in [0, 1)
+        // At 0: show lower fully, upper invisible
+        // At approaching 1: fade to upper
+        const eps = 0.01;
+        let lowerAlpha, upperAlpha;
+
+        if (decimalProgress < eps) {
+          lowerAlpha = 1;
+          upperAlpha = 0;
+        } else if (decimalProgress > 1 - eps) {
+          lowerAlpha = 0;
+          upperAlpha = 1;
+        } else {
+          lowerAlpha = 1 - decimalProgress;
+          upperAlpha = decimalProgress;
+        }
+
+        // Draw lower frame
+        ctx.globalAlpha = lowerAlpha;
+        ctx.drawImage(lowerImg, canvas.drawX, canvas.drawY, canvas.drawWidth, canvas.drawHeight);
+        ctx.globalAlpha = 1;
+
+        // Draw upper frame
+        ctx.globalAlpha = upperAlpha;
+        ctx.drawImage(upperImg, canvas.drawX, canvas.drawY, canvas.drawWidth, canvas.drawHeight);
+        ctx.globalAlpha = 1;
+
+        ticking = false;
+      }
+
+      // Add scroll listener
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        sectionHeight = window.innerHeight;
+        document.body.style.height = `${TOTAL_VALID_FRAMES * sectionHeight}px`;
+      });
+
+      // Initial preload
+      preloadFrames(0, 10);
+    }
+
+    // Initialize
+    setupPage();
+  </script>
+</body>
+</html>
