@@ -106,6 +106,49 @@ function updateScroll() {
   targetFrame = progress * (totalFrames - 1);
 }
 
+// Interactive Feature: Challenge the Model button toggle in Section 05
+function initModelChallengeInteraction() {
+  const challengeBtn = document.getElementById('btn-challenge-model');
+  const challengeStatus = document.getElementById('challenge-status');
+
+  if (!challengeBtn) return;
+
+  let isChallenged = false;
+
+  challengeBtn.addEventListener('click', () => {
+    isChallenged = !isChallenged;
+
+    if (isChallenged) {
+      challengeBtn.textContent = 'RESET MODEL PARAMETERS ←';
+      challengeBtn.style.backgroundColor = '#FF3344';
+      challengeBtn.style.color = '#FFF';
+      challengeBtn.style.borderColor = '#FF3344';
+
+      if (challengeStatus) {
+        challengeStatus.textContent = 'Simulating high track evolution (+6.8%): Truth Horizon collapsed to 02 LAPS!';
+        challengeStatus.style.color = '#FF3344';
+      }
+
+      // Temporarily highlight status items
+      const horizonVal = document.querySelector('.s-value.lime-text');
+      if (horizonVal) horizonVal.textContent = '02 LAPS (ALERT)';
+    } else {
+      challengeBtn.textContent = 'CHALLENGE THE MODEL →';
+      challengeBtn.style.backgroundColor = '';
+      challengeBtn.style.color = '';
+      challengeBtn.style.borderColor = '';
+
+      if (challengeStatus) {
+        challengeStatus.textContent = 'Simulating high track evolution delta...';
+        challengeStatus.style.color = '';
+      }
+
+      const horizonVal = document.querySelector('.s-value.lime-text');
+      if (horizonVal) horizonVal.textContent = '04 LAPS';
+    }
+  });
+}
+
 // Main animation tick
 function tick() {
   const diff = targetFrame - currentFrame;
@@ -164,6 +207,7 @@ function init() {
   resizeCanvas();
   preloadImages();
   updateScroll(); // Initial scroll mapping
+  initModelChallengeInteraction();
   requestAnimationFrame(tick); // Start loop
 }
 
